@@ -3,10 +3,10 @@
 I always associate songs with feelings, so whenever I make playlists I tend to find songs that all fit a specific mood. Becuase I don't want to keep a tracker separate, I'm creating a [Spicetify](https://spicetify.app/) extension for the Spotify desktop app that lets you tag songs with vibes, browse your songs by a tag, and turn any feeling into a playlist. 
 
 Applying a tag:
-!(applying a tag)[images/apply_tag.png]
+![applying a tag](images/apply_tag.png)
 
 Seeing your tagged songs:
-!(tagged songs)[images/tagged_v1.png]
+![tagged songs](images/tagged_v1.png)
 
 > Your tags will stay on your own computer. Use **backup** in the Vibes window to copy them to another device.
 

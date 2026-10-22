@@ -23,9 +23,29 @@ function useStore() {
   useEffect(() => {
     const refresh = () => setData(vt.load());
     window.addEventListener(vt.CHANGED_EVENT, refresh);
+    vt.repairInfo().catch((e) => console.warn("[Vibe Tagger] Repair failed", e));
     return () => window.removeEventListener(vt.CHANGED_EVENT, refresh);
   }, []);
   return data;
+}
+
+// The URI of the song playing right now, so its row can be highlighted.
+function usePlayingUri() {
+  const [uri, setUri] = useState(() => Spicetify.Player.data?.item?.uri);
+  useEffect(() => {
+    const update = () => setUri(Spicetify.Player.data?.item?.uri);
+    Spicetify.Player.addEventListener("songchange", update);
+    return () => Spicetify.Player.removeEventListener("songchange", update);
+  }, []);
+  return uri;
+}
+
+function timeAgo(ms) {
+  const days = Math.floor((Date.now() - ms) / 86400000);
+  if (days < 1) return "Today";
+  if (days === 1) return "Yesterday";
+  if (days < 30) return `${days} days ago`;
+  return new Date(ms).toLocaleDateString();
 }
 
 function TaggedSongsPage() {
@@ -41,13 +61,14 @@ function TaggedSongsPage() {
 function Page() {
   const vt = window.VibeTagger;
   const data = useStore();
+  const playing = usePlayingUri();
   const [selected, setSelected] = useState([]); // vibes to filter by; a song must have all of them
   const [sort, setSort] = useState("recent");
   const [showBackup, setShowBackup] = useState(false);
 
   const vibes = vt.allVibes(data);
-  const tracks = vt
-    .allTracks(data)
+  const everything = vt.allTracks(data);
+  const tracks = everything
     .filter((t) => selected.every((v) => t.vibes.includes(v)))
     .sort(SORTS[sort].compare);
 
@@ -66,11 +87,11 @@ function Page() {
     vt.save(d);
   };
 
-  const playlistName = selected.length ? selected.join(" + ") : "All tagged songs";
+  const title = selected.length ? selected.join(" + ") : "Tagged songs";
   const makePlaylist = async () => {
     try {
-      await vt.makePlaylist(playlistName, tracks.map((t) => t.uri));
-      Spicetify.showNotification(`Created playlist "${playlistName}"`);
+      await vt.makePlaylist(title, tracks.map((t) => t.uri));
+      Spicetify.showNotification(`Created playlist "${title}"`);
     } catch (e) {
       console.error("[Vibe Tagger] Playlist failed", e);
       Spicetify.showNotification("Could not create the playlist. See the console for details.", true);
@@ -87,33 +108,35 @@ function Page() {
       : [{ vibe: null, tracks }];
 
   return h("div", { className: "vt-page" },
-    h("div", null,
-      h("h1", null, "Tagged songs"),
-      h("div", { className: "vt-muted" },
-        `${vt.allTracks(data).length} songs · ${vibes.length} vibes`)
-    ),
+    h(Hero, { title, tracks, total: everything.length, vibeCount: vibes.length }),
 
     vibes.length === 0
       ? h("p", { className: "vt-muted" },
           "Nothing tagged yet. Tap the heart next to the lyrics button, or right-click a song and choose Tag vibe…")
       : h(react.Fragment, null,
-          h(FilterBar, { vibes, selected, toggleFilter, clear: () => setSelected([]), recolor }),
-          h("div", { className: "vt-row" },
+          h("div", { className: "vt-toolbar" },
+            h("button", {
+              className: "vt-play",
+              title: `Play ${tracks.length} songs`,
+              onClick: () => vt.playAll(tracks.map((t) => t.uri)),
+            }, "▶"),
+            h("button", { className: "vt-btn ghost", onClick: makePlaylist }, "Make playlist"),
+            h("div", { className: "vt-spacer" }),
             h("span", { className: "vt-sub" }, "Sort by"),
             h("select", {
               className: "vt-select",
               value: sort,
               onChange: (e) => setSort(e.target.value),
-            }, Object.entries(SORTS).map(([key, s]) => h("option", { key, value: key }, s.label))),
-            h("button", { className: "vt-btn", onClick: () => vt.playAll(tracks.map((t) => t.uri)) },
-              `Play ${tracks.length}`),
-            h("button", { className: "vt-btn ghost", onClick: makePlaylist }, "Make playlist")
+            }, Object.entries(SORTS).map(([key, s]) => h("option", { key, value: key }, s.label)))
           ),
+          h(FilterBar, { vibes, selected, toggleFilter, clear: () => setSelected([]), recolor }),
           groups.map((g) =>
             h("div", { key: g.vibe ? g.vibe.name : "all" },
               g.vibe && h("div", { className: "vt-group" },
-                h("span", { className: "vt-dot", style: { background: g.vibe.color } }), g.vibe.name),
-              h(SongTable, { data, tracks: g.tracks, untag, vt })
+                h("span", { className: "vt-dot", style: { background: g.vibe.color } }),
+                g.vibe.name,
+                h("span", { className: "vt-sub" }, `${g.tracks.length} songs`)),
+              h(SongTable, { data, tracks: g.tracks, untag, vt, playing })
             )
           )
         ),
@@ -126,46 +149,68 @@ function Page() {
   );
 }
 
+// Header like a playlist page: a cover collage from the first four songs, then the title.
+function Hero({ title, tracks, total, vibeCount }) {
+  const covers = [...new Set(tracks.map((t) => t.image).filter(Boolean))].slice(0, 4);
+  const art = covers.length >= 4 ? covers : covers.slice(0, 1);
+  return h("div", { className: "vt-hero" },
+    h("div", { className: art.length === 1 ? "vt-hero-art single" : "vt-hero-art" },
+      art.map((src) => h("img", { key: src, src }))),
+    h("div", null,
+      h("div", { className: "vt-eyebrow" }, "Vibe Tagger"),
+      h("h1", null, title),
+      h("div", { className: "vt-muted" },
+        title === "Tagged songs" ? `${total} songs · ${vibeCount} vibes` : `${tracks.length} songs`)
+    )
+  );
+}
+
 function FilterBar({ vibes, selected, toggleFilter, clear, recolor }) {
-  return h("div", { className: "vt-root" },
-    h("div", { className: "vt-sub" },
-      "Filter by vibe (pick several to find songs that have all of them). Use the color dot to recolor."),
-    h("div", { className: "vt-chips" },
-      h("button", { className: selected.length ? "vt-chip" : "vt-chip on", onClick: clear }, "All"),
-      vibes.map((v) =>
-        h("span", { key: v.name, className: "vt-row", style: { gap: "2px" } },
-          h("button", {
-            className: selected.includes(v.name) ? "vt-chip on" : "vt-chip",
-            style: { "--vt-color": v.color },
-            onClick: () => toggleFilter(v.name),
-          }, `${v.name} · ${v.count}`),
-          h("input", {
-            type: "color",
-            className: "vt-color-input",
-            value: v.color,
-            title: `Color for "${v.name}"`,
-            onChange: (e) => recolor(v.name, e.target.value),
-          })
-        )
+  return h("div", { className: "vt-chips" },
+    h("button", { className: selected.length ? "vt-chip" : "vt-chip on", onClick: clear }, "All"),
+    vibes.map((v) =>
+      h("span", { key: v.name, className: "vt-filter" },
+        h("button", {
+          className: selected.includes(v.name) ? "vt-chip on" : "vt-chip",
+          style: { "--vt-color": v.color },
+          onClick: () => toggleFilter(v.name),
+        }, `${v.name} · ${v.count}`),
+        h("input", {
+          type: "color",
+          className: "vt-color-input",
+          value: v.color,
+          title: `Change the color of "${v.name}"`,
+          onChange: (e) => recolor(v.name, e.target.value),
+        })
       )
     )
   );
 }
 
-function SongTable({ data, tracks, untag, vt }) {
+function SongTable({ data, tracks, untag, vt, playing }) {
   return h("div", { className: "vt-table" },
     h("div", { className: "vt-tr vt-th" },
-      h("span", null, "#"), h("span", null, "Title"), h("span", null, "Vibes"), h("span", null, "")),
-    tracks.map((t, i) =>
-      h("div", { key: t.uri, className: "vt-tr" },
-        h("span", { className: "vt-sub" }, i + 1),
-        h("div", { style: { minWidth: 0 } },
-          h("div", {
-            className: "vt-title",
-            title: "Play",
-            onClick: () => Spicetify.Player.playUri(t.uri),
-          }, t.name),
-          h("div", { className: "vt-sub" }, t.artist)
+      h("span", { className: "vt-num" }, "#"),
+      h("span", null, "Title"),
+      h("span", null, "Vibes"),
+      h("span", null, "Tagged"),
+      h("span", null, "")),
+    tracks.map((t, i) => {
+      const play = () => Spicetify.Player.playUri(t.uri);
+      return h("div", {
+        key: t.uri,
+        className: t.uri === playing ? "vt-tr playing" : "vt-tr",
+        onDoubleClick: play,
+      },
+        h("span", { className: "vt-num" }, i + 1),
+        h("div", { className: "vt-song" },
+          t.image
+            ? h("img", { className: "vt-cover", src: t.image, onClick: play, title: "Play" })
+            : h("div", { className: "vt-cover", onClick: play, title: "Play" }),
+          h("div", { className: "vt-song-text" },
+            h("div", { className: "vt-name", title: "Play", onClick: play }, t.name),
+            h("div", { className: "vt-sub vt-artist" }, t.artist)
+          )
         ),
         h("div", { className: "vt-chips", style: { gap: "4px" } },
           t.vibes.map((v) =>
@@ -176,14 +221,18 @@ function SongTable({ data, tracks, untag, vt }) {
             }, v, h("span", {
               className: "vt-x",
               title: `Remove "${v}"`,
-              style: { cursor: "pointer" },
               onClick: () => untag(t.uri, v),
             }, "×"))
           )
         ),
-        h("button", { className: "vt-btn ghost", onClick: () => vt.openTagPicker([t.uri]) }, "Edit")
-      )
-    )
+        h("span", { className: "vt-sub" }, timeAgo(t.taggedAt)),
+        h("button", {
+          className: "vt-icon-btn",
+          title: "Edit vibes",
+          onClick: () => vt.openTagPicker([t.uri]),
+        }, "✎")
+      );
+    })
   );
 }
 

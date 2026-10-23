@@ -1,7 +1,9 @@
 {
   "name": "Tagged songs",
-  "icon": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z\"/><circle cx=\"7.5\" cy=\"7.5\" r=\"1.5\"/></svg>",
-  "active-icon": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"currentColor\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z\"/><circle cx=\"7.5\" cy=\"7.5\" r=\"1.5\" fill=\"#000\"/></svg>",
+  "icon": "<svg class=\"vt-icon\" xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\"><image width=\"24\" height=\"24\" href=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAABS0lEQVR4AdxUwY3CMBAkpxRw1wHXyd0zUpIe6IASoIJr4TqIlETKkxboADqAAiKFGctGa+PYkMAHxLCTNZ7xrh1/LF78eTODruuWTdMMc0AN2XWrRX3fH+TgFO5qWAZGsCiKZArMfBm9BvIPc/kkg7Zt/7hPjLEFTDIYhmFNYRPJxxA0wAoPXClwkgIQXpk9knkfDxpAaKkn7XVUoSzLf0Xu+AkamFUi/kqtqqo+UZ3aB5n38aCBnIA2/dR1rVqWpukJ1a2TJIlWEjXASpUozHYQNC3D4+Kc5/mKJISoAUS+IbAF5HeLtn3JxBiPGnAixDaAfLs3zPPeQeuudxdzLu4ycCeZZ/fe0Xmr2lkGWlAGtk5VZ5LPNLgRp4nXQPY1xCmg4RXnmGWA880Tw/wjGBWniGWQZdnROS3y5Ixxq+cUlbAM5MCz+MsNLgAAAP//kQjPzAAAAAZJREFUAwBDoNwxmuhL9AAAAABJRU5ErkJggg==\"/></svg>",
+  "active-icon": "<svg class=\"vt-icon\" xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\"><image width=\"24\" height=\"24\" href=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAABS0lEQVR4AdxUwY3CMBAkpxRw1wHXyd0zUpIe6IASoIJr4TqIlETKkxboADqAAiKFGctGa+PYkMAHxLCTNZ7xrh1/LF78eTODruuWTdMMc0AN2XWrRX3fH+TgFO5qWAZGsCiKZArMfBm9BvIPc/kkg7Zt/7hPjLEFTDIYhmFNYRPJxxA0wAoPXClwkgIQXpk9knkfDxpAaKkn7XVUoSzLf0Xu+AkamFUi/kqtqqo+UZ3aB5n38aCBnIA2/dR1rVqWpukJ1a2TJIlWEjXASpUozHYQNC3D4+Kc5/mKJISoAUS+IbAF5HeLtn3JxBiPGnAixDaAfLs3zPPeQeuudxdzLu4ycCeZZ/fe0Xmr2lkGWlAGtk5VZ5LPNLgRp4nXQPY1xCmg4RXnmGWA880Tw/wjGBWniGWQZdnROS3y5Ixxq+cUlbAM5MCz+MsNLgAAAP//kQjPzAAAAAZJREFUAwBDoNwxmuhL9AAAAABJRU5ErkJggg==\" style=\"filter: brightness(0) invert(1)\"/></svg>",
   "subfiles": [],
-  "subfiles_extension": ["vibeTagger.js"]
+  "subfiles_extension": [
+    "vibeTagger.js"
+  ]
 }

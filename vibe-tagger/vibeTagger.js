@@ -22,7 +22,9 @@
   const CHANGED_EVENT = "vibe-tagger:changed";
   const PAGE_PATH = "/vibe-tagger";
   const API = "https://api.spotify.com/v1";
-  const PALETTE = ["#f47c7c", "#f7b267", "#f9e076", "#9ad98c", "#6fd0c5", "#7fb3ff", "#b39cff", "#f598d6"];
+  const DEFAULT_COLOR = "#a0a0a0";
+  // Grey first: new vibes start grey until you pick something else.
+  const PALETTE = [DEFAULT_COLOR, "#f47c7c", "#f7b267", "#f9e076", "#9ad98c", "#6fd0c5", "#7fb3ff", "#b39cff", "#f598d6"];
 
   // ---------- Store ----------
   // { version: 2, tracks: { uri: { name, artist, vibes: [..], taggedAt } }, vibes: { name: { color } } }
@@ -44,7 +46,7 @@
     // Version 1 saves had no colors, so give every existing vibe one.
     if (!data.vibes) data.vibes = {};
     for (const track of Object.values(data.tracks)) {
-      for (const v of track.vibes) if (!data.vibes[v]) data.vibes[v] = { color: nextColor(data) };
+      for (const v of track.vibes) if (!data.vibes[v]) data.vibes[v] = { color: DEFAULT_COLOR };
     }
     data.version = 2;
     return data;
@@ -62,12 +64,8 @@
     return vibe.trim().replace(/\s+/g, " ").toLowerCase();
   }
 
-  function nextColor(data) {
-    return PALETTE[Object.keys(data.vibes).length % PALETTE.length];
-  }
-
   function colorOf(data, vibe) {
-    return data.vibes[vibe]?.color || PALETTE[0];
+    return data.vibes[vibe]?.color || DEFAULT_COLOR;
   }
 
   function setColor(data, vibe, color) {
@@ -90,7 +88,7 @@
   }
 
   function setVibe(data, uri, info, vibe, on, color) {
-    if (on && !data.vibes[vibe]) data.vibes[vibe] = { color: color || nextColor(data) };
+    if (on && !data.vibes[vibe]) data.vibes[vibe] = { color: color || DEFAULT_COLOR };
     let track = data.tracks[uri];
     if (!track) {
       if (!on) return;
@@ -99,6 +97,27 @@
     if (on && !track.vibes.includes(vibe)) track.vibes.push(vibe);
     if (!on) track.vibes = track.vibes.filter((v) => v !== vibe);
     if (track.vibes.length === 0) delete data.tracks[uri];
+  }
+
+  // Renames a vibe on every song. If the new name already exists, the two merge.
+  function renameVibe(data, from, to) {
+    if (!to || from === to) return;
+    if (!data.vibes[to]) data.vibes[to] = { ...data.vibes[from] };
+    for (const track of Object.values(data.tracks)) {
+      if (!track.vibes.includes(from)) continue;
+      track.vibes = track.vibes.filter((v) => v !== from);
+      if (!track.vibes.includes(to)) track.vibes.push(to);
+    }
+    delete data.vibes[from];
+  }
+
+  // Removes a vibe from every song.
+  function deleteVibe(data, vibe) {
+    for (const [uri, track] of Object.entries(data.tracks)) {
+      track.vibes = track.vibes.filter((v) => v !== vibe);
+      if (track.vibes.length === 0) delete data.tracks[uri];
+    }
+    delete data.vibes[vibe];
   }
 
   function importBackup(text) {
@@ -356,6 +375,21 @@
     .vt-tr:hover .vt-x { opacity: 0.7; }
     .vt-x:hover { opacity: 1 !important; }
     .vt-filter { display: flex; align-items: center; gap: 4px; }
+
+    /* The PNG icons are grey; turn them white on hover or when active, like Spotify's own icons. */
+    button:hover .vt-icon image, a:hover .vt-icon image, a[aria-current="page"] .vt-icon image,
+    .vt-icon.active image { filter: brightness(0) invert(1); }
+
+    .vt-menu { position: fixed; z-index: 9999; min-width: 200px; padding: 4px; border-radius: 4px;
+      background: #282828; box-shadow: 0 16px 24px rgba(0,0,0,.3), 0 6px 8px rgba(0,0,0,.2);
+      color: var(--spice-text, #fff); font-size: 14px; }
+    .vt-menu-title { padding: 8px 12px 4px; color: var(--spice-subtext, #b3b3b3); font-size: 12px; }
+    .vt-menu-item { display: block; width: 100%; text-align: left; padding: 10px 12px; border: none;
+      background: none; color: inherit; cursor: pointer; border-radius: 2px; font-size: 14px; }
+    .vt-menu-item:hover { background: rgba(255,255,255,0.1); }
+    .vt-menu-item.danger { color: #f47c7c; }
+    .vt-menu-sep { height: 1px; margin: 4px 0; background: rgba(255,255,255,0.1); }
+    .vt-menu .vt-swatches { padding: 6px 12px 8px; flex-wrap: wrap; }
   `;
   document.head.appendChild(style);
 
@@ -379,15 +413,46 @@
 
   // ---------- Tag picker ----------
 
+  // A row of color swatches plus a custom picker. It updates itself in place rather
+  // than being rebuilt, because Spotify closes the modal when the clicked element
+  // disappears from the page.
+  function colorPicker(current, onPick) {
+    const row = el("div", "vt-swatches");
+    const swatches = [];
+    const custom = el("input", "vt-color-input");
+    const select = (c) => {
+      current = c;
+      for (const s of swatches) s.classList.toggle("on", s.dataset.color === c);
+      custom.value = c;
+      onPick(c);
+    };
+    for (const c of PALETTE) {
+      const s = el("button", c === current ? "vt-swatch on" : "vt-swatch");
+      s.style.background = c;
+      s.title = c === DEFAULT_COLOR ? "Grey (default)" : c;
+      s.dataset.color = c;
+      s.addEventListener("click", () => select(c));
+      swatches.push(s);
+      row.appendChild(s);
+    }
+    custom.type = "color";
+    custom.value = current;
+    custom.title = "Pick any color";
+    custom.addEventListener("change", () => select(custom.value));
+    row.appendChild(custom);
+    return row;
+  }
+
   async function openTagPicker(uris, contextUri) {
     if (!uris || uris.length === 0) {
-      notify("Play a song first, then tap the heart.", true);
+      notify("Play a song first, then tap the tag button.", true);
       return;
     }
     const data = load();
     const info = await fetchInfo(uris, data, contextUri);
     const root = el("div", "vt-root");
-    let newColor = nextColor(data);
+    let newColor = DEFAULT_COLOR;
+    let colorPicked = false;
 
     // A vibe is "on" only if every selected song already has it.
     function isOn(vibe) {
@@ -401,87 +466,119 @@
         if (t) Object.assign(t, merge(t, info[uri]));
       }
       save(data);
-      render();
     }
 
-    function render() {
-      root.replaceChildren();
+    const first = info[uris[0]];
+    const label =
+      uris.length === 1
+        ? `${first.name}${first.artist ? " · " + first.artist : ""}`
+        : `${uris.length} songs selected`;
+    root.appendChild(el("div", "vt-muted", label));
 
-      const first = info[uris[0]];
-      const label =
-        uris.length === 1
-          ? `${first.name}${first.artist ? " · " + first.artist : ""}`
-          : `${uris.length} songs selected`;
-      root.appendChild(el("div", "vt-muted", label));
+    // New vibe: name + color.
+    const input = el("input", "vt-input");
+    input.placeholder = "New vibe, e.g. rainy 2am";
+    const add = () => {
+      const vibe = normalize(input.value);
+      if (!vibe) return;
+      // Retyping an existing vibe keeps its color unless you picked a new one.
+      if (data.vibes[vibe] && colorPicked) setColor(data, vibe, newColor);
+      toggle(vibe, true, newColor);
+      input.value = "";
+      renderChips();
+      notify(`Tagged "${vibe}"`);
+    };
+    input.addEventListener("keydown", (e) => e.key === "Enter" && add());
+    const row = el("div", "vt-row");
+    row.append(input, button("Add", add));
+    root.appendChild(row);
 
-      // New vibe: name + color.
-      const input = el("input", "vt-input");
-      input.placeholder = "New vibe, e.g. rainy 2am";
-      const add = () => {
-        const vibe = normalize(input.value);
-        if (!vibe) return;
-        if (data.vibes[vibe]) setColor(data, vibe, newColor);
-        toggle(vibe, true, newColor);
-        newColor = nextColor(data);
-        notify(`Tagged "${vibe}"`);
-      };
-      input.addEventListener("keydown", (e) => e.key === "Enter" && add());
-      const row = el("div", "vt-row");
-      row.append(input, button("Add", add));
-      root.appendChild(row);
+    const swatches = colorPicker(newColor, (c) => {
+      newColor = c;
+      colorPicked = true;
+    });
+    swatches.prepend(el("span", "vt-sub", "Color:"));
+    root.appendChild(swatches);
 
-      const swatches = el("div", "vt-swatches");
-      swatches.appendChild(el("span", "vt-sub", "Color:"));
-      for (const c of PALETTE) {
-        const s = el("button", c === newColor ? "vt-swatch on" : "vt-swatch");
-        s.style.background = c;
-        s.title = c;
-        s.addEventListener("click", () => {
-          newColor = c;
-          render();
-        });
-        swatches.appendChild(s);
-      }
-      const custom = el("input", "vt-color-input");
-      custom.type = "color";
-      custom.value = newColor;
-      custom.title = "Pick any color";
-      custom.addEventListener("change", () => {
-        newColor = custom.value;
-        render();
-      });
-      swatches.appendChild(custom);
-      root.appendChild(swatches);
-
-      // Existing vibes as colored toggle chips.
+    // Existing vibes as colored toggle chips. Chips flip in place so the list
+    // doesn't reshuffle (or close the modal) while you click through it.
+    const chipsBox = el("div", "vt-root");
+    root.appendChild(chipsBox);
+    function renderChips() {
+      chipsBox.replaceChildren();
       const vibes = allVibes(data);
       if (vibes.length === 0) {
-        root.appendChild(el("div", "vt-muted", "No vibes yet. Type your first one above."));
-      } else {
-        root.appendChild(el("div", "vt-sub", "Click a vibe to add or remove it"));
-        const chips = el("div", "vt-chips");
-        for (const { name, color } of vibes) {
-          const on = isOn(name);
-          const chip = el("button", on ? "vt-chip on" : "vt-chip", name);
-          chip.style.setProperty("--vt-color", color);
-          chip.addEventListener("click", () => toggle(name, !on));
-          chips.appendChild(chip);
-        }
-        root.appendChild(chips);
+        chipsBox.appendChild(el("div", "vt-muted", "No vibes yet. Type your first one above."));
+        return;
       }
-
-      const footer = el("div", "vt-row");
-      footer.appendChild(button("Open Tagged songs", () => {
-        Spicetify.PopupModal.hide();
-        openPage();
-      }, true));
-      root.appendChild(footer);
-
-      setTimeout(() => input.focus(), 0);
+      chipsBox.appendChild(el("div", "vt-sub", "Click a vibe to add or remove it"));
+      const chips = el("div", "vt-chips");
+      for (const { name, color } of vibes) {
+        const chip = el("button", isOn(name) ? "vt-chip on" : "vt-chip", name);
+        chip.style.setProperty("--vt-color", color);
+        chip.addEventListener("click", () => {
+          const on = !isOn(name);
+          toggle(name, on);
+          chip.classList.toggle("on", on);
+        });
+        chips.appendChild(chip);
+      }
+      chipsBox.appendChild(chips);
     }
+    renderChips();
 
-    render();
+    const footer = el("div", "vt-row");
+    footer.appendChild(button("Open Tagged songs", () => {
+      Spicetify.PopupModal.hide();
+      openPage();
+    }, true));
+    root.appendChild(footer);
+
     Spicetify.PopupModal.display({ title: "Tag vibe", content: root });
+    setTimeout(() => input.focus(), 0);
+  }
+
+  function openRenameDialog(vibe) {
+    const root = el("div", "vt-root");
+    const input = el("input", "vt-input");
+    input.value = vibe;
+    const done = () => {
+      const to = normalize(input.value);
+      if (!to) return;
+      const data = load();
+      const merging = to !== vibe && data.vibes[to];
+      renameVibe(data, vibe, to);
+      save(data);
+      Spicetify.PopupModal.hide();
+      notify(merging ? `Merged "${vibe}" into "${to}"` : `Renamed to "${to}"`);
+    };
+    input.addEventListener("keydown", (e) => e.key === "Enter" && done());
+    const row = el("div", "vt-row");
+    row.append(input, button("Rename", done));
+    root.append(row, el("div", "vt-sub", "Using a name that already exists merges the two vibes."));
+    Spicetify.PopupModal.display({ title: `Rename "${vibe}"`, content: root });
+    setTimeout(() => input.select(), 0);
+  }
+
+  function openDeleteDialog(vibe) {
+    const data = load();
+    const count = Object.values(data.tracks).filter((t) => t.vibes.includes(vibe)).length;
+    const root = el("div", "vt-root");
+    root.appendChild(el("div", "vt-muted",
+      `This removes "${vibe}" from ${count} ${count === 1 ? "song" : "songs"}. The songs themselves stay in Spotify.`));
+    const row = el("div", "vt-row");
+    row.append(
+      button("Cancel", () => Spicetify.PopupModal.hide(), true),
+      button("Delete vibe", () => {
+        const d = load();
+        deleteVibe(d, vibe);
+        save(d);
+        Spicetify.PopupModal.hide();
+        notify(`Deleted "${vibe}"`);
+      })
+    );
+    root.appendChild(row);
+    Spicetify.PopupModal.display({ title: `Delete "${vibe}"?`, content: root });
   }
 
   function openPage() {
@@ -501,23 +598,28 @@
 
   new Spicetify.ContextMenu.Item("Open Tagged songs", openPage, () => true, "heart").register();
 
-  // Heart in the player bar: tags whatever is playing right now.
-  const heart = new Spicetify.Playbar.Button("Tag vibe", "heart", () => {
+  // images/tag_song.png, inlined because extensions can't load files of their own.
+  const TAG_ICON =
+    '<svg class="vt-icon" width="16" height="16" viewBox="0 0 24 24"><image width="24" height="24" ' +
+    'href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAABjElEQVR4AbyV21GEMBSGFyrQDrYE7cB3YEY6sAS3ArWCtQNLcIbL8GgJawdbghbAgP/HGIaFQJIH3eGfnJzbB0lg490f//4P0DTNvizL3qWqqh5DHnp8grZtzz6Ffd8fdRPPPrnkjAAmKMuyaE1xHN+SIz35QhYAFe+0DNxlz8jcKEmSz1CIFaBlGNbZjAbAGAqxAqIoeqWZGbGnCoFYAWmaHtgHxmnjqe0LsQKmjbZsH4g3oCiKB52cOwPElu5dkAWgrusb08SMOk1n7ceb5h/YCFt6F+RrDlF8OCSK70aAGhxwdF13mkN0mvbEEDbC/tUV4xSi+BEfGgHaUE7OC04bBL9LquMpL9JGAF6dHD4BC4j8EXGbTExLdVJ8WF59dq5lD9cFAI8KvCHKHcDz5nmef9MLLQA4VeiEKMfZnF5WAAE1WIUo5tWcPqsAgmpkhRDbWhbiRpsAkmwQ3+bUOwEkzSHyjadluqHyLy4vAFVAzMvInKPoak6eN4BkXkaBhn88n+bUBAEoCNUPAAAA//+t9qLCAAAABklEQVQDAAnsI0Cj5zvRAAAAAElFTkSuQmCC"/></svg>';
+
+  // Tag button in the player bar: tags whatever is playing right now.
+  const tagButton = new Spicetify.Playbar.Button("Tag vibe", TAG_ICON, () => {
     const uri = Spicetify.Player.data?.item?.uri;
     openTagPicker(uri && isTrack(uri) ? [uri] : []);
   });
 
   // Spicetify puts playbar buttons at the start of the right-hand controls.
-  // Move the heart so it sits directly left of the lyrics button when we can find it.
-  function placeHeart() {
+  // Move the tag button so it sits directly left of the lyrics button when we can find it.
+  function placeTagButton() {
     const lyrics = document.querySelector('[data-testid="lyrics-button"]');
-    const node = heart.element;
+    const node = tagButton.element;
     if (lyrics && node && lyrics.previousElementSibling !== node) {
       lyrics.parentElement.insertBefore(node, lyrics);
     }
   }
-  new MutationObserver(placeHeart).observe(document.body, { childList: true, subtree: true });
-  placeHeart();
+  new MutationObserver(placeTagButton).observe(document.body, { childList: true, subtree: true });
+  placeTagButton();
 
   setTimeout(() => repairInfo().catch((e) => console.warn("[Vibe Tagger] Repair failed", e)), 5000);
 
@@ -537,6 +639,10 @@
     makePlaylist,
     playAll,
     openTagPicker,
+    openRenameDialog,
+    openDeleteDialog,
+    renameVibe,
+    deleteVibe,
     repairInfo,
   };
 })();

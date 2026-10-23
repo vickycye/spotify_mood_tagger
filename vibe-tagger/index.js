@@ -3,7 +3,7 @@
 
 const react = Spicetify.React;
 const h = react.createElement;
-const { useState, useEffect } = react;
+const { useState, useEffect, useLayoutEffect, useRef } = react;
 
 const SORTS = {
   recent: { label: "Recently tagged", compare: (a, b) => b.taggedAt - a.taggedAt },
@@ -65,8 +65,21 @@ function Page() {
   const [selected, setSelected] = useState([]); // vibes to filter by; a song must have all of them
   const [sort, setSort] = useState("recent");
   const [showBackup, setShowBackup] = useState(false);
+  const [menu, setMenu] = useState(null); // { x, y, vibe, uri? } while a tag's right-click menu is open
 
   const vibes = vt.allVibes(data);
+
+  // Drop filters for vibes that were renamed or deleted.
+  useEffect(() => {
+    const live = selected.filter((v) => data.vibes[v]);
+    if (live.length !== selected.length) setSelected(live);
+  }, [data]);
+
+  const openMenu = (e, vibe, uri) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setMenu({ x: e.clientX, y: e.clientY, vibe, uri });
+  };
   const everything = vt.allTracks(data);
   const tracks = everything
     .filter((t) => selected.every((v) => t.vibes.includes(v)))
@@ -112,7 +125,7 @@ function Page() {
 
     vibes.length === 0
       ? h("p", { className: "vt-muted" },
-          "Nothing tagged yet. Tap the heart next to the lyrics button, or right-click a song and choose Tag vibe…")
+          "Nothing tagged yet. Tap the tag button next to the lyrics button, or right-click a song and choose Tag vibe…")
       : h(react.Fragment, null,
           h("div", { className: "vt-toolbar" },
             h("button", {
@@ -129,14 +142,14 @@ function Page() {
               onChange: (e) => setSort(e.target.value),
             }, Object.entries(SORTS).map(([key, s]) => h("option", { key, value: key }, s.label)))
           ),
-          h(FilterBar, { vibes, selected, toggleFilter, clear: () => setSelected([]), recolor }),
+          h(FilterBar, { vibes, selected, toggleFilter, clear: () => setSelected([]), recolor, openMenu }),
           groups.map((g) =>
             h("div", { key: g.vibe ? g.vibe.name : "all" },
-              g.vibe && h("div", { className: "vt-group" },
+              g.vibe && h("div", { className: "vt-group", onContextMenu: (e) => openMenu(e, g.vibe.name) },
                 h("span", { className: "vt-dot", style: { background: g.vibe.color } }),
                 g.vibe.name,
                 h("span", { className: "vt-sub" }, `${g.tracks.length} songs`)),
-              h(SongTable, { data, tracks: g.tracks, untag, vt, playing })
+              h(SongTable, { data, tracks: g.tracks, untag, vt, playing, openMenu })
             )
           )
         ),
@@ -145,7 +158,90 @@ function Page() {
       h("button", { className: "vt-btn ghost", onClick: () => setShowBackup(!showBackup) },
         showBackup ? "Hide backup" : "Backup / restore")
     ),
-    showBackup && h(Backup, { data, vt })
+    showBackup && h(Backup, { data, vt }),
+    menu && h(VibeMenu, {
+      menu,
+      vt,
+      color: vt.colorOf(data, menu.vibe),
+      close: () => setMenu(null),
+      showOnly: () => setSelected([menu.vibe]),
+      play: () => vt.playAll(everything.filter((t) => t.vibes.includes(menu.vibe)).map((t) => t.uri)),
+      recolor,
+      untag,
+    })
+  );
+}
+
+// Right-click menu for a vibe chip. Picking a color keeps it open so you can try a few.
+function VibeMenu({ menu, vt, color, close, showOnly, play, recolor, untag }) {
+  const ref = useRef(null);
+  const [pos, setPos] = useState({ left: menu.x, top: menu.y });
+
+  // Keep the menu on screen when the click is near the right or bottom edge.
+  useLayoutEffect(() => {
+    const r = ref.current.getBoundingClientRect();
+    setPos({
+      left: Math.max(8, Math.min(menu.x, window.innerWidth - r.width - 8)),
+      top: Math.max(8, Math.min(menu.y, window.innerHeight - r.height - 8)),
+    });
+  }, [menu.x, menu.y]);
+
+  useEffect(() => {
+    const onDown = (e) => !ref.current?.contains(e.target) && close();
+    const onKey = (e) => e.key === "Escape" && close();
+    document.addEventListener("mousedown", onDown, true);
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("scroll", close, true);
+    window.addEventListener("blur", close);
+    return () => {
+      document.removeEventListener("mousedown", onDown, true);
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("scroll", close, true);
+      window.removeEventListener("blur", close);
+    };
+  }, []);
+
+  const item = (label, onClick, danger) =>
+    h("button", {
+      className: danger ? "vt-menu-item danger" : "vt-menu-item",
+      onClick: () => {
+        close();
+        onClick();
+      },
+    }, label);
+
+  return h("div", {
+    ref,
+    className: "vt-menu",
+    style: pos,
+    onContextMenu: (e) => e.preventDefault(),
+  },
+    h("div", { className: "vt-menu-title" }, menu.vibe),
+    item("Show only this vibe", showOnly),
+    item("Play these songs", play),
+    h("div", { className: "vt-menu-sep" }),
+    h("div", { className: "vt-menu-title" }, "Color"),
+    h("div", { className: "vt-swatches" },
+      vt.PALETTE.map((c) =>
+        h("button", {
+          key: c,
+          className: c === color ? "vt-swatch on" : "vt-swatch",
+          style: { background: c },
+          title: c,
+          onClick: () => recolor(menu.vibe, c),
+        })),
+      h("input", {
+        type: "color",
+        className: "vt-color-input",
+        value: color,
+        title: "Pick any color",
+        onChange: (e) => recolor(menu.vibe, e.target.value),
+      })
+    ),
+    h("div", { className: "vt-menu-sep" }),
+    item("Rename…", () => vt.openRenameDialog(menu.vibe)),
+    menu.uri && item("Remove from this song", () => untag(menu.uri, menu.vibe)),
+    item("Delete vibe…", () => vt.openDeleteDialog(menu.vibe), true)
   );
 }
 
@@ -165,7 +261,7 @@ function Hero({ title, tracks, total, vibeCount }) {
   );
 }
 
-function FilterBar({ vibes, selected, toggleFilter, clear, recolor }) {
+function FilterBar({ vibes, selected, toggleFilter, clear, recolor, openMenu }) {
   return h("div", { className: "vt-chips" },
     h("button", { className: selected.length ? "vt-chip" : "vt-chip on", onClick: clear }, "All"),
     vibes.map((v) =>
@@ -174,6 +270,8 @@ function FilterBar({ vibes, selected, toggleFilter, clear, recolor }) {
           className: selected.includes(v.name) ? "vt-chip on" : "vt-chip",
           style: { "--vt-color": v.color },
           onClick: () => toggleFilter(v.name),
+          onContextMenu: (e) => openMenu(e, v.name),
+          title: "Right-click for more options",
         }, `${v.name} · ${v.count}`),
         h("input", {
           type: "color",
@@ -187,7 +285,7 @@ function FilterBar({ vibes, selected, toggleFilter, clear, recolor }) {
   );
 }
 
-function SongTable({ data, tracks, untag, vt, playing }) {
+function SongTable({ data, tracks, untag, vt, playing, openMenu }) {
   return h("div", { className: "vt-table" },
     h("div", { className: "vt-tr vt-th" },
       h("span", { className: "vt-num" }, "#"),
@@ -218,6 +316,7 @@ function SongTable({ data, tracks, untag, vt, playing }) {
               key: v,
               className: "vt-chip small on",
               style: { "--vt-color": vt.colorOf(data, v) },
+              onContextMenu: (e) => openMenu(e, v, t.uri),
             }, v, h("span", {
               className: "vt-x",
               title: `Remove "${v}"`,
